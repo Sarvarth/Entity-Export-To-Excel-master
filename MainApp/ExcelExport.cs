@@ -10,7 +10,6 @@ namespace MainApp
         private readonly Excel.Application excelApp;
         private readonly Excel.Workbook excelWorkBook;
         private readonly Excel.Worksheet excelWorkSheet;
-        private readonly DataSet dataSet;
 
         public ExcelExport(string path, string workSheetName)
         {
@@ -22,11 +21,12 @@ namespace MainApp
             excelWorkSheet = excelWorkBook.Sheets.Add();
             excelWorkSheet.Name = workSheetName;
 
-            dataSet = new DataSet();
         }
 
         public void GenerateExcel(DataTable dataTable)
         {
+            var dataSet = new DataSet();
+
             dataSet.Tables.Add(dataTable);
 
             // create a excel app along side with workbook and worksheet and give a name to it

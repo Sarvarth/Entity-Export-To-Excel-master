@@ -29,21 +29,26 @@ namespace MainApp
             {
                 Credentials = credentials
             };
-            
+
             var currentDirectory = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location).Replace("MainApp\\bin\\Debug", "");
             var repoNameFile = "RepositoryNames.txt";
             var repoNamePath = currentDirectory + repoNameFile;
 
             var allRepoNames = File.ReadAllLines(repoNamePath);
 
-            var prr = new PullRequestRequest { 
+            var prr = new PullRequestRequest
+            {
                 State = ItemStateFilter.Closed
             };
+
+            var str = "https://github-rd.carefusion.com/vanguard/logistics-storagespaceItem-orchestrator/pulls";
+            var abcd = str.Split('/');
+
             try
             {
                 Console.WriteLine("Please mention the start date (dd/MM/yyyy)");
                 StartDate = DateTime.Parse(Console.ReadLine());
-                
+
                 Console.WriteLine("Please mention the end date (dd/MM/yyyy)");
                 EndDate = DateTime.Parse(Console.ReadLine());
             }
@@ -59,103 +64,45 @@ namespace MainApp
 
             var excelExport = new ExcelExport(excelWorkbookPath, excelWorkSheetName);
 
-            //var rc = new RepositoryCollection();
-            //foreach(var repoName in allRepoNames)
-            //{
-            //    rc.Add($"vanguard/{repoName}");
-            //}
-
-            //var start_dto = new DateTimeOffset(StartDate);
-            //var end_dto = new DateTimeOffset(EndDate);
-
-            //var abc = new SearchIssuesRequest
-            //{
-            //    Merged = new DateRange(start_dto, end_dto),
-            //    Type = IssueTypeQualifier.PullRequest,
-            //    Repos = rc
-            //};
-
-            //var ddp = await client.Search.SearchIssues(abc);
-            int flag = 0;
-            var dataTable = new DataTable();
-
+            var rc = new RepositoryCollection();
             foreach (var repoName in allRepoNames)
             {
-                Console.WriteLine($"Checking PRs for {repoName}");
-
-                //var prs = await client.PullRequest.GetAllForRepository("vanguard", repoName, prr);
-                //var filteredPrs = prs.Where(pr => pr.Merged && pr.MergedAt.Value <= EndDate && pr.MergedAt.Value >= StartDate).ToList();
-
-                var rc = new RepositoryCollection();
                 rc.Add($"vanguard/{repoName}");
-
-                var start_dto = new DateTimeOffset(StartDate);
-                var end_dto = new DateTimeOffset(EndDate);
-
-                var abc = new SearchIssuesRequest
-                {
-                    Merged = new DateRange(start_dto, end_dto),
-                    Type = IssueTypeQualifier.PullRequest,
-                    Repos = rc
-                };
-
-                var filteredPrs = await client.Search.SearchIssues(abc);
-
-
-                var prsToBeAdded = new List<Issue>();
-
-                foreach (var filteredPr in filteredPrs.Items)
-                {
-                    var reviewCommentsCount = (await client.PullRequest.ReviewComment.GetAll("vanguard", repoName, filteredPr.Number)).Count;
-                    if(reviewCommentsCount > 0)
-                    {
-                        prsToBeAdded.Add(filteredPr);
-                    }
-                }
-                if (prsToBeAdded.Any())
-                {
-                    if(flag == 0)
-                    {
-                        var formColumn = FormColumn(prsToBeAdded, repoName, dataTable);
-                        flag = 1;
-                    }
-                    
-                    Console.WriteLine($"Found Repo {repoName} with Review Comments");
-                    dataTable.Add(ConvertToDataTable(prsToBeAdded, repoName));
-                }
-                else
-                {
-                    Console.WriteLine($"Cannot find any PR which lies in our range with ReviewComments for Repo {repoName}");
-                }
             }
-            excelExport.GenerateExcel(dataTable);
-            excelExport.SaveAndCloseExcel();
-        }
 
-        static DataTable FormColumn<T>(List<T> models, string repoName)
-        {
-
-            DataTable dataTable = new DataTable(repoName);
-
-            //Get all the properties
-            PropertyInfo[] Props = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
-
-            // Loop through all the properties            
-            // Adding Column to our datatable
-            foreach (PropertyInfo prop in Props)
+            var abc = new SearchIssuesRequest
             {
-                //Setting column names as Property names  
-                dataTable.Columns.Add(prop.Name);
+                Merged = new DateRange(StartDate, EndDate),
+                Type = IssueTypeQualifier.PullRequest,
+                Repos = rc
+            };
+
+            //var prs = await client.PullRequest.GetAllForRepository("vanguard", repoName, prr);
+            //var filteredPrs = prs.Where(pr => pr.Merged && pr.MergedAt.Value <= EndDate && pr.MergedAt.Value >= StartDate).ToList();
+
+            var filteredPrs = await client.Search.SearchIssues(abc);
+
+            var prsToBeAdded = new List<Issue>();
+
+            foreach (var filteredPr in filteredPrs.Items)
+            {
+                var reviewCommentsCount = (await client.PullRequest.ReviewComment.GetAll("vanguard", filteredPr.GetName(), filteredPr.Number)).Count;
+                if (reviewCommentsCount > 0)
+                {
+                    prsToBeAdded.Add(filteredPr);
+                }
             }
-            dataTable.Columns.Add("Repository Name");
-
-            return dataTable;
-
+            if (prsToBeAdded.Any())
+            {
+                excelExport.GenerateExcel(ConvertToDataTable<Issue>(prsToBeAdded));
+                excelExport.SaveAndCloseExcel();
+            }
         }
+        
         // T : Generic Class
-        static DataTable ConvertToDataTable<T>(List<T> models, string repoName)
+        static DataTable ConvertToDataTable<T>(List<Issue> models)
         {
-            DataTable dataTable = new DataTable(repoName);
+            DataTable dataTable = new DataTable(typeof(T).Name);
 
             //Get all the properties
             PropertyInfo[] Props = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
@@ -170,7 +117,7 @@ namespace MainApp
             dataTable.Columns.Add("Repository Name");
 
             // Adding Row
-            foreach (T item in models)
+            foreach (Issue item in models)
             {
                 var values = new object[Props.Length + 1];
                 int i;
@@ -180,7 +127,7 @@ namespace MainApp
                     values[i] = Props[i].GetValue(item, null);
                 }
 
-                values[i] = repoName;
+                values[i] = item.GetName();
 
                 // Finally add value to datatable  
                 dataTable.Rows.Add(values);
