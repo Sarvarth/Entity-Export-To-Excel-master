@@ -57,6 +57,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ExcelExport.cs" />
+    <Compile Include="GetNameExtension.cs" />
     <Compile Include="Model\UserManager.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

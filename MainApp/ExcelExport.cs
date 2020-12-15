@@ -4,26 +4,35 @@ using System;
 
 namespace MainApp
 {
-    static class ExcelExport
+    class ExcelExport
     {
-        private static Excel.Application excelApp = new Excel.Application();
-        private static Excel.Workbook excelWorkBook = excelApp.Workbooks.Add();
-        private static string _path = string.Empty;
+        private readonly string _path = string.Empty;
+        private readonly Excel.Application excelApp;
+        private readonly Excel.Workbook excelWorkBook;
+        private readonly Excel.Worksheet excelWorkSheet;
+        private readonly DataSet dataSet;
 
-        public static void GenerateExcel(DataTable dataTable, string path)
+        public ExcelExport(string path, string workSheetName)
         {
             _path = path;
+            excelApp = new Excel.Application();
+            excelWorkBook = excelApp.Workbooks.Add();
 
-            DataSet dataSet = new DataSet();
+            //Add a new worksheet to workbook with the Datatable name
+            excelWorkSheet = excelWorkBook.Sheets.Add();
+            excelWorkSheet.Name = workSheetName;
+
+            dataSet = new DataSet();
+        }
+
+        public void GenerateExcel(DataTable dataTable)
+        {
             dataSet.Tables.Add(dataTable);
 
             // create a excel app along side with workbook and worksheet and give a name to it
             foreach (DataTable table in dataSet.Tables)
             {
-                //Add a new worksheet to workbook with the Datatable name
-                Excel.Worksheet excelWorkSheet = excelWorkBook.Sheets.Add();
-                excelWorkSheet.Name = table.TableName;
-
+                
                 // add all the columns
                 for (int i = 1; i < table.Columns.Count + 1; i++)
                 {
@@ -42,7 +51,7 @@ namespace MainApp
             
         }
 
-        public static void SaveAndCloseExcel()
+        public void SaveAndCloseExcel()
         {
             Console.WriteLine("Saving your data");
             excelWorkBook.SaveAs(_path);

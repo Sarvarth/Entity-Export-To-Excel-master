@@ -50,20 +50,61 @@ namespace MainApp
             catch
             {
                 Console.WriteLine("You were wrong. Try again!!");
-                Console.ReadKey();
+                Environment.Exit(0);
             }
-            
-            var excelWorkbookName = "PRsList " + StartDate.ToShortDateString() + " to " + EndDate.ToShortDateString();
+
+            var excelWorkbookName = "PRDetails";
+            var excelWorkSheetName = "PRsList " + StartDate.ToShortDateString() + " to " + EndDate.ToShortDateString();
             var excelWorkbookPath = currentDirectory + excelWorkbookName;
 
+            var excelExport = new ExcelExport(excelWorkbookPath, excelWorkSheetName);
+
+            //var rc = new RepositoryCollection();
+            //foreach(var repoName in allRepoNames)
+            //{
+            //    rc.Add($"vanguard/{repoName}");
+            //}
+
+            //var start_dto = new DateTimeOffset(StartDate);
+            //var end_dto = new DateTimeOffset(EndDate);
+
+            //var abc = new SearchIssuesRequest
+            //{
+            //    Merged = new DateRange(start_dto, end_dto),
+            //    Type = IssueTypeQualifier.PullRequest,
+            //    Repos = rc
+            //};
+
+            //var ddp = await client.Search.SearchIssues(abc);
+            int flag = 0;
+            var dataTable = new DataTable();
 
             foreach (var repoName in allRepoNames)
             {
                 Console.WriteLine($"Checking PRs for {repoName}");
-                var prs = await client.PullRequest.GetAllForRepository("vanguard", repoName, prr);
-                var filteredPrs = prs.Where(pr => pr.Merged && pr.MergedAt.Value <= EndDate && pr.MergedAt.Value >= StartDate).ToList();
-                var prsToBeAdded = new List<PullRequest>();
-                foreach(var filteredPr in filteredPrs)
+
+                //var prs = await client.PullRequest.GetAllForRepository("vanguard", repoName, prr);
+                //var filteredPrs = prs.Where(pr => pr.Merged && pr.MergedAt.Value <= EndDate && pr.MergedAt.Value >= StartDate).ToList();
+
+                var rc = new RepositoryCollection();
+                rc.Add($"vanguard/{repoName}");
+
+                var start_dto = new DateTimeOffset(StartDate);
+                var end_dto = new DateTimeOffset(EndDate);
+
+                var abc = new SearchIssuesRequest
+                {
+                    Merged = new DateRange(start_dto, end_dto),
+                    Type = IssueTypeQualifier.PullRequest,
+                    Repos = rc
+                };
+
+                var filteredPrs = await client.Search.SearchIssues(abc);
+
+
+                var prsToBeAdded = new List<Issue>();
+
+                foreach (var filteredPr in filteredPrs.Items)
                 {
                     var reviewCommentsCount = (await client.PullRequest.ReviewComment.GetAll("vanguard", repoName, filteredPr.Number)).Count;
                     if(reviewCommentsCount > 0)
@@ -73,19 +114,28 @@ namespace MainApp
                 }
                 if (prsToBeAdded.Any())
                 {
+                    if(flag == 0)
+                    {
+                        var formColumn = FormColumn(prsToBeAdded, repoName, dataTable);
+                        flag = 1;
+                    }
+                    
                     Console.WriteLine($"Found Repo {repoName} with Review Comments");
-                    ExcelExport.GenerateExcel(ConvertToDataTable(prsToBeAdded, repoName.Substring(0, 30)), excelWorkbookPath);
+                    dataTable.Add(ConvertToDataTable(prsToBeAdded, repoName));
+                }
+                else
+                {
+                    Console.WriteLine($"Cannot find any PR which lies in our range with ReviewComments for Repo {repoName}");
                 }
             }
-         
-            ExcelExport.SaveAndCloseExcel();
+            excelExport.GenerateExcel(dataTable);
+            excelExport.SaveAndCloseExcel();
         }
 
-
-        // T : Generic Class
-        static DataTable ConvertToDataTable<T>(List<T> models, string sheetName)
+        static DataTable FormColumn<T>(List<T> models, string repoName)
         {
-            DataTable dataTable = new DataTable(sheetName);
+
+            DataTable dataTable = new DataTable(repoName);
 
             //Get all the properties
             PropertyInfo[] Props = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
@@ -97,47 +147,62 @@ namespace MainApp
                 //Setting column names as Property names  
                 dataTable.Columns.Add(prop.Name);
             }
+            dataTable.Columns.Add("Repository Name");
+
+            return dataTable;
+
+        }
+        // T : Generic Class
+        static DataTable ConvertToDataTable<T>(List<T> models, string repoName)
+        {
+            DataTable dataTable = new DataTable(repoName);
+
+            //Get all the properties
+            PropertyInfo[] Props = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+            // Loop through all the properties            
+            // Adding Column to our datatable
+            foreach (PropertyInfo prop in Props)
+            {
+                //Setting column names as Property names  
+                dataTable.Columns.Add(prop.Name);
+            }
+            dataTable.Columns.Add("Repository Name");
 
             // Adding Row
             foreach (T item in models)
             {
-                var values = new object[Props.Length];
-                for (int i = 0; i < Props.Length; i++)
+                var values = new object[Props.Length + 1];
+                int i;
+                for (i = 0; i < Props.Length; i++)
                 {
                     //inserting property values to datatable rows  
                     values[i] = Props[i].GetValue(item, null);
                 }
+
+                values[i] = repoName;
+
                 // Finally add value to datatable  
                 dataTable.Rows.Add(values);
             }
-            dataTable.Columns.Remove("NodeId");
-            dataTable.Columns.Remove("HtmlUrl");
-            dataTable.Columns.Remove("DiffUrl");
-            dataTable.Columns.Remove("PatchUrl");
-            dataTable.Columns.Remove("IssueUrl");
-            dataTable.Columns.Remove("StatusesUrl");
-            dataTable.Columns.Remove("Head");
-            dataTable.Columns.Remove("Base");
+
+            dataTable.Columns.Remove("CommentsUrl");
+            dataTable.Columns.Remove("EventsUrl");
+            dataTable.Columns.Remove("ClosedBy");
             dataTable.Columns.Remove("User");
+            dataTable.Columns.Remove("Labels");
             dataTable.Columns.Remove("Assignee");
             dataTable.Columns.Remove("Assignees");
             dataTable.Columns.Remove("Milestone");
-            dataTable.Columns.Remove("Draft");
-            dataTable.Columns.Remove("Merged");
-            dataTable.Columns.Remove("Mergeable");
-            dataTable.Columns.Remove("MergeableState");
-            dataTable.Columns.Remove("MergedBy");
-            dataTable.Columns.Remove("MergeCommitSha");
             dataTable.Columns.Remove("Comments");
-            dataTable.Columns.Remove("Commits");
-            dataTable.Columns.Remove("Additions");
-            dataTable.Columns.Remove("Deletions");
-            dataTable.Columns.Remove("ChangedFiles");
+            dataTable.Columns.Remove("PullRequest");
+            dataTable.Columns.Remove("ClosedAt");
+            dataTable.Columns.Remove("CreatedAt");
+            dataTable.Columns.Remove("UpdatedAt");
             dataTable.Columns.Remove("Locked");
-            dataTable.Columns.Remove("MaintainerCanModify");
-            dataTable.Columns.Remove("RequestedReviewers");
-            dataTable.Columns.Remove("RequestedTeams");
-            dataTable.Columns.Remove("Labels");
+            dataTable.Columns.Remove("Repository");
+            dataTable.Columns.Remove("Reactions");
+
             return dataTable;
         }
     }
