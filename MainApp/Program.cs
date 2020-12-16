@@ -1,12 +1,10 @@
 ﻿using Octokit;
 using System;
 using System.Collections.Generic;
-using System.Data;
+using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.IO;
 using System.Threading.Tasks;
-using System.Globalization;
 
 namespace MainApp
 {
@@ -22,27 +20,52 @@ namespace MainApp
 
         static async Task Main(string[] args)
         {
+
+            var currentDirectory = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location).Replace("MainApp\\bin\\Debug", "");
+            var credsFilePath = currentDirectory + "Creds.txt";
+            string username = string.Empty;
+            string password = string.Empty;
+
+            Console.WriteLine("Welcome to the Github Repo PR Extractor\n");
+
+            if (!File.Exists(credsFilePath))
+            {
+                Console.Write("Would you like us to save your username or password? \nYou won't have to enter it next time (y/n):- ");
+                var saveCredentials = Console.ReadLine();
+
+                Console.Write("Please enter your BD email address:- ");
+                username = Console.ReadLine();
+
+                Console.Write("Please enter your password:- ");
+                password = Console.ReadLine();
+
+                if (saveCredentials.ToLower() == "y")
+                {
+                    CreateCredsFile(username, password, credsFilePath);
+                    Console.WriteLine("\n\nALERT!! A Creds.txt file is created with your credentials. Keep them safe");
+                }
+            }
+            else
+            {
+                Console.WriteLine("Logging you in!!");
+                var creds = File.ReadAllLines(credsFilePath);
+                username = creds[0];
+                password = creds[1];
+
+                Console.WriteLine($"Welcome {username}\n");
+            }
+
             var prodHeader = new ProductHeaderValue(GitHubIdentity);
-            var credentials = new Credentials("7f4d674999cf17062ca99a2b9c2fdbce56222839");
+            var credentials = new Credentials(username, password);
             var enterpriseUrl = "https://github-rd.carefusion.com/vanguard";
             var client = new GitHubClient(prodHeader, new Uri(enterpriseUrl))
             {
                 Credentials = credentials
             };
 
-            var currentDirectory = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location).Replace("MainApp\\bin\\Debug", "");
             var repoNameFile = "RepositoryNames.txt";
             var repoNamePath = currentDirectory + repoNameFile;
-
             var allRepoNames = File.ReadAllLines(repoNamePath);
-
-            var prr = new PullRequestRequest
-            {
-                State = ItemStateFilter.Closed
-            };
-
-            var str = "https://github-rd.carefusion.com/vanguard/logistics-storagespaceItem-orchestrator/pulls";
-            var abcd = str.Split('/');
 
             try
             {
@@ -55,11 +78,12 @@ namespace MainApp
             catch
             {
                 Console.WriteLine("You were wrong. Try again!!");
+                Console.ReadKey();
                 Environment.Exit(0);
             }
 
-            var excelWorkbookName = "PRDetails";
-            var excelWorkSheetName = "PRsList " + StartDate.ToShortDateString() + " to " + EndDate.ToShortDateString();
+            var excelWorkbookName = "PRsList " + StartDate.ToShortDateString() + " to " + EndDate.ToShortDateString();
+            var excelWorkSheetName= "PRDetails";
             var excelWorkbookPath = currentDirectory + excelWorkbookName;
 
             var excelExport = new ExcelExport(excelWorkbookPath, excelWorkSheetName);
@@ -70,21 +94,38 @@ namespace MainApp
                 rc.Add($"vanguard/{repoName}");
             }
 
-            var abc = new SearchIssuesRequest
+            var searchIssuesRequest = new SearchIssuesRequest
             {
                 Merged = new DateRange(StartDate, EndDate),
                 Type = IssueTypeQualifier.PullRequest,
-                Repos = rc
+                Repos = rc,
+                SortField = IssueSearchSort.Merged,
+                Page = 1,
+                PerPage = 100
             };
+            
+            var filteredPrs = await client.Search.SearchIssues(searchIssuesRequest);
+            var totalNumberOfPrs = filteredPrs.TotalCount;
 
-            //var prs = await client.PullRequest.GetAllForRepository("vanguard", repoName, prr);
-            //var filteredPrs = prs.Where(pr => pr.Merged && pr.MergedAt.Value <= EndDate && pr.MergedAt.Value >= StartDate).ToList();
+            Console.WriteLine($"Found {totalNumberOfPrs} of PRs within our range\n");
 
-            var filteredPrs = await client.Search.SearchIssues(abc);
+            var totalFilteredPRs = (List<Issue>)filteredPrs.Items;
+            
+            // Max page size is 100
+            while ((totalNumberOfPrs / (searchIssuesRequest.Page * 100)) >= 1)
+            {
+                // 403 = 1 * 100, 2 * 100, 3 * 100, 4 * 100, 5 * 3
+                searchIssuesRequest.PerPage = ((totalNumberOfPrs - searchIssuesRequest.Page * 100) < 100) ? (totalNumberOfPrs - searchIssuesRequest.Page * 100) : 100;
+                searchIssuesRequest.Page += 1;
+                filteredPrs = await client.Search.SearchIssues(searchIssuesRequest);
+                totalFilteredPRs.AddRange(filteredPrs.Items);
+            }
 
             var prsToBeAdded = new List<Issue>();
 
-            foreach (var filteredPr in filteredPrs.Items)
+            Console.WriteLine("Checking if any PRs have any review comments...");
+
+            foreach (var filteredPr in totalFilteredPRs)
             {
                 var reviewCommentsCount = (await client.PullRequest.ReviewComment.GetAll("vanguard", filteredPr.GetName(), filteredPr.Number)).Count;
                 if (reviewCommentsCount > 0)
@@ -94,63 +135,24 @@ namespace MainApp
             }
             if (prsToBeAdded.Any())
             {
-                excelExport.GenerateExcel(ConvertToDataTable<Issue>(prsToBeAdded));
+                Console.WriteLine($"Found {prsToBeAdded.Count} PRs with CR Comments");
+                excelExport.GenerateExcel<Issue>(prsToBeAdded);
                 excelExport.SaveAndCloseExcel();
             }
+            else
+            {
+                Console.WriteLine("No PR found in our range with CR comments.\nHave a Nice Day!!");
+                Console.ReadKey();
+            }
         }
-        
-        // T : Generic Class
-        static DataTable ConvertToDataTable<T>(List<Issue> models)
+
+        private static void CreateCredsFile(string username, string password, string filePath)
         {
-            DataTable dataTable = new DataTable(typeof(T).Name);
-
-            //Get all the properties
-            PropertyInfo[] Props = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
-
-            // Loop through all the properties            
-            // Adding Column to our datatable
-            foreach (PropertyInfo prop in Props)
+            using (StreamWriter sw = File.CreateText(filePath))
             {
-                //Setting column names as Property names  
-                dataTable.Columns.Add(prop.Name);
+                sw.WriteLine(username);
+                sw.WriteLine(password);
             }
-            dataTable.Columns.Add("Repository Name");
-
-            // Adding Row
-            foreach (Issue item in models)
-            {
-                var values = new object[Props.Length + 1];
-                int i;
-                for (i = 0; i < Props.Length; i++)
-                {
-                    //inserting property values to datatable rows  
-                    values[i] = Props[i].GetValue(item, null);
-                }
-
-                values[i] = item.GetName();
-
-                // Finally add value to datatable  
-                dataTable.Rows.Add(values);
-            }
-
-            dataTable.Columns.Remove("CommentsUrl");
-            dataTable.Columns.Remove("EventsUrl");
-            dataTable.Columns.Remove("ClosedBy");
-            dataTable.Columns.Remove("User");
-            dataTable.Columns.Remove("Labels");
-            dataTable.Columns.Remove("Assignee");
-            dataTable.Columns.Remove("Assignees");
-            dataTable.Columns.Remove("Milestone");
-            dataTable.Columns.Remove("Comments");
-            dataTable.Columns.Remove("PullRequest");
-            dataTable.Columns.Remove("ClosedAt");
-            dataTable.Columns.Remove("CreatedAt");
-            dataTable.Columns.Remove("UpdatedAt");
-            dataTable.Columns.Remove("Locked");
-            dataTable.Columns.Remove("Repository");
-            dataTable.Columns.Remove("Reactions");
-
-            return dataTable;
         }
     }
 }

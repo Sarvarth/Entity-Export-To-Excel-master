@@ -1,6 +1,9 @@
 ﻿using Excel = Microsoft.Office.Interop.Excel;
 using System.Data;
 using System;
+using System.Collections.Generic;
+using Octokit;
+using System.Reflection;
 
 namespace MainApp
 {
@@ -23,11 +26,11 @@ namespace MainApp
 
         }
 
-        public void GenerateExcel(DataTable dataTable)
+        public void GenerateExcel<T>(List<Issue> models)
         {
             var dataSet = new DataSet();
 
-            dataSet.Tables.Add(dataTable);
+            dataSet.Tables.Add(ConvertToDataTable<T>(models));
 
             // create a excel app along side with workbook and worksheet and give a name to it
             foreach (DataTable table in dataSet.Tables)
@@ -61,6 +64,64 @@ namespace MainApp
             excelApp.Quit();
 
             Console.ReadKey();
+        }
+
+        DataTable ConvertToDataTable<T>(List<Issue> models)
+        {
+            DataTable dataTable = new DataTable(typeof(T).Name);
+
+            //Get all the properties
+            PropertyInfo[] Props = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+            // Loop through all the properties            
+            // Adding Column to our datatable
+            foreach (PropertyInfo prop in Props)
+            {
+                //Setting column names as Property names  
+                dataTable.Columns.Add(prop.Name);
+            }
+            dataTable.Columns.Add("Repository Name");
+
+            // Adding Row
+            foreach (Issue item in models)
+            {
+                var values = new object[Props.Length + 1];
+                int i;
+                for (i = 0; i < Props.Length; i++)
+                {
+                    //inserting property values to datatable rows  
+                    values[i] = Props[i].GetValue(item, null);
+                }
+
+                values[i] = item.GetName();
+
+                // Finally add value to datatable  
+                dataTable.Rows.Add(values);
+            }
+
+            RemoveColumns(dataTable);
+
+            return dataTable;
+        }
+
+        private void RemoveColumns(DataTable dataTable)
+        {
+            dataTable.Columns.Remove("CommentsUrl");
+            dataTable.Columns.Remove("EventsUrl");
+            dataTable.Columns.Remove("ClosedBy");
+            dataTable.Columns.Remove("User");
+            dataTable.Columns.Remove("Labels");
+            dataTable.Columns.Remove("Assignee");
+            dataTable.Columns.Remove("Assignees");
+            dataTable.Columns.Remove("Milestone");
+            dataTable.Columns.Remove("Comments");
+            dataTable.Columns.Remove("PullRequest");
+            dataTable.Columns.Remove("ClosedAt");
+            dataTable.Columns.Remove("CreatedAt");
+            dataTable.Columns.Remove("UpdatedAt");
+            dataTable.Columns.Remove("Locked");
+            dataTable.Columns.Remove("Repository");
+            dataTable.Columns.Remove("Reactions");
         }
     }
 }
